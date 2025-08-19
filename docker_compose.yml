@@ -1,0 +1,78 @@
+version: '3.8'
+
+services:
+  n8n:
+    image: n8nio/n8n:latest
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_HOST=0.0.0.0
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=https
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=${N8N_BASIC_AUTH_USER:-admin}
+      - N8N_BASIC_AUTH_PASSWORD=${N8N_BASIC_AUTH_PASSWORD:-admin123}
+      - WEBHOOK_URL=${RAILWAY_PUBLIC_DOMAIN}
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - N8N_EDITOR_BASE_URL=${RAILWAY_PUBLIC_DOMAIN}
+      - N8N_SECURE_COOKIE=false
+      - N8N_METRICS=true
+    depends_on:
+      ollama:
+        condition: service_healthy
+    volumes:
+      - n8n_data:/home/node/.n8n
+    networks:
+      - ai-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:5678/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    environment:
+      - OLLAMA_ORIGINS=*
+      - OLLAMA_HOST=0.0.0.0
+      - OLLAMA_KEEP_ALIVE=24h
+      - OLLAMA_MAX_LOADED_MODELS=3
+      - OLLAMA_NUM_PARALLEL=2
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - ai-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 15s
+      retries: 10
+      start_period: 180s
+    entrypoint: >
+      sh -c "
+      echo '🚀 Starting Ollama server...' &&
+      ollama serve &
+      echo '⏳ Waiting for Ollama to be ready...' &&
+      sleep 60 &&
+      echo '📥 Downloading AI models...' &&
+      ollama pull gemma2:2b &&
+      echo '✅ Model gemma2:2b (1.6GB) downloaded!' &&
+      ollama pull qwen2.5:3b &&
+      echo '✅ Model qwen2.5:3b (2.3GB) downloaded!' &&
+      echo '🎉 All models ready! Ollama is running on port 11434' &&
+      wait
+      "
+
+volumes:
+  n8n_data:
+    driver: local
+  ollama_data:
+    driver: local
+
+networks:
+  ai-network:
+    driver: bridge

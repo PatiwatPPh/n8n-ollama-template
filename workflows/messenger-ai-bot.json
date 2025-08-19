@@ -1,0 +1,232 @@
+{
+  "name": "🤖 Messenger AI Bot with Ollama",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "webhook",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "name": "📥 Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "id": "webhook-001"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.query['hub.mode']}}",
+              "operation": "equal",
+              "value2": "subscribe"
+            }
+          ]
+        }
+      },
+      "name": "🔍 Is Verification?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [440, 300],
+      "id": "if-verification"
+    },
+    {
+      "parameters": {
+        "functionCode": "// Facebook Webhook Verification\nconst challenge = $json.query['hub.challenge'];\nconst verify_token = $json.query['hub.verify_token'];\n\nif (verify_token === 'YOUR_VERIFY_TOKEN') {\n  return [{\n    json: { \n      challenge: parseInt(challenge),\n      status: 'verified'\n    }\n  }];\n}\n\nreturn [{\n  json: { \n    error: 'Invalid verify token',\n    status: 'failed' \n  }\n}];"
+      },
+      "name": "✅ Verify Token",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [640, 200],
+      "id": "verify-function"
+    },
+    {
+      "parameters": {
+        "functionCode": "// Process Facebook Messenger Message\nconst body = $json.body;\n\nif (body && body.entry) {\n  const messages = [];\n  \n  body.entry.forEach(entry => {\n    entry.messaging?.forEach(event => {\n      if (event.message && event.message.text) {\n        messages.push({\n          sender_id: event.sender.id,\n          message_text: event.message.text,\n          timestamp: event.timestamp,\n          page_id: entry.id\n        });\n      }\n    });\n  });\n  \n  if (messages.length > 0) {\n    return messages;\n  }\n}\n\nreturn [{\n  json: {\n    status: 'no_message',\n    info: 'No text message found in webhook'\n  }\n}];"
+      },
+      "name": "💬 Process Message",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [640, 400],
+      "id": "process-message"
+    },
+    {
+      "parameters": {
+        "functionCode": "// Prepare AI Prompt\nconst userMessage = $json.message_text;\nconst senderId = $json.sender_id;\n\n// Create context-aware prompt\nconst prompt = `คุณเป็นผู้ช่วยที่เป็นมิตรและฉลาด กรุณาตอบคำถามต่อไปนี้เป็นภาษาไทย:\n\nคำถาม: ${userMessage}\n\nคำตอบ:`;\n\nreturn [{\n  json: {\n    model: 'gemma2:2b',\n    prompt: prompt,\n    stream: false,\n    options: {\n      temperature: 0.7,\n      top_p: 0.9,\n      max_tokens: 500\n    },\n    sender_id: senderId,\n    original_message: userMessage\n  }\n}];"
+      },
+      "name": "🧠 Prepare AI Prompt",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [840, 400],
+      "id": "prepare-prompt"
+    },
+    {
+      "parameters": {
+        "url": "http://ollama:11434/api/generate",
+        "options": {
+          "bodyContentType": "json",
+          "body": "={{$json}}",
+          "timeout": 30000
+        }
+      },
+      "name": "🤖 Ollama AI",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [1040, 400],
+      "id": "ollama-ai"
+    },
+    {
+      "parameters": {
+        "functionCode": "// Format AI Response for Facebook\nconst aiResponse = $json.response;\nconst senderId = $node['🧠 Prepare AI Prompt'].json.sender_id;\n\n// Clean and limit response length\nlet response = aiResponse.trim();\n\n// Facebook message limit is 2000 characters\nif (response.length > 1800) {\n  response = response.substring(0, 1797) + '...';\n}\n\n// Add emoji for friendly touch\nconst emojis = ['😊', '👍', '✨', '🎉', '💡'];\nconst randomEmoji = emojis[Math.floor(Math.random() * emojis.length)];\n\nreturn [{\n  json: {\n    recipient: {\n      id: senderId\n    },\n    message: {\n      text: `${response} ${randomEmoji}`\n    },\n    messaging_type: 'RESPONSE'\n  }\n}];"
+      },
+      "name": "📝 Format Response",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1240, 400],
+      "id": "format-response"
+    },
+    {
+      "parameters": {
+        "url": "https://graph.facebook.com/v18.0/me/messages",
+        "options": {
+          "bodyContentType": "json",
+          "body": "={{$json}}",
+          "headers": {
+            "Authorization": "Bearer YOUR_PAGE_ACCESS_TOKEN",
+            "Content-Type": "application/json"
+          }
+        }
+      },
+      "name": "📤 Send to Facebook",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [1440, 400],
+      "id": "send-facebook"
+    },
+    {
+      "parameters": {},
+      "name": "✅ Success Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [840, 200],
+      "id": "success-response"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"status\": \"received\", \"timestamp\": Date.now() } }}"
+      },
+      "name": "📨 Message Received",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1640, 400],
+      "id": "message-received"
+    }
+  ],
+  "connections": {
+    "📥 Webhook": {
+      "main": [
+        [
+          {
+            "node": "🔍 Is Verification?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🔍 Is Verification?": {
+      "main": [
+        [
+          {
+            "node": "✅ Verify Token",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "💬 Process Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "✅ Verify Token": {
+      "main": [
+        [
+          {
+            "node": "✅ Success Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "💬 Process Message": {
+      "main": [
+        [
+          {
+            "node": "🧠 Prepare AI Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🧠 Prepare AI Prompt": {
+      "main": [
+        [
+          {
+            "node": "🤖 Ollama AI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🤖 Ollama AI": {
+      "main": [
+        [
+          {
+            "node": "📝 Format Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📝 Format Response": {
+      "main": [
+        [
+          {
+            "node": "📤 Send to Facebook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📤 Send to Facebook": {
+      "main": [
+        [
+          {
+            "node": "📨 Message Received",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {},
+  "staticData": null,
+  "tags": ["ai", "chatbot", "facebook", "messenger", "ollama"],
+  "triggerCount": 0,
+  "updatedAt": "2024-01-01T00:00:00.000Z",
+  "versionId": "1"
+}
