@@ -1,19 +1,24 @@
-FROM docker/compose:latest
+# ใช้ Alpine image ที่มี tools พร้อม
+FROM alpine:latest
 
-# Install curl and other utilities
-RUN apk add --no-cache curl bash
+# Install docker-compose และ tools จำเป็น
+RUN apk add --no-cache \
+    docker-compose \
+    curl \
+    bash \
+    wget
 
 WORKDIR /app
 
-# Copy all configuration files
+# Copy configuration files
 COPY docker-compose.yml .
 COPY wait-for-ollama.sh .
 
 # Make scripts executable
 RUN chmod +x wait-for-ollama.sh
 
-# Expose ports for n8n and Ollama
+# Expose ports
 EXPOSE 5678 11434
 
 # Start services
-CMD ["up", "--build", "--remove-orphans"]
+CMD ["docker-compose", "up", "--build", "--remove-orphans"]
